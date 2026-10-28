@@ -1,0 +1,721 @@
+
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+
+-- Configuration
+local IMAGE_ID = "rbxassetid://101306566466200"
+
+local velocityMult = 0.025
+local brakeForce = 0.150
+local flightSpeed = 1
+local flightEnabled = false
+local keybindsActive = true
+
+local accelKey = Enum.KeyCode.W
+local brakeKey = Enum.KeyCode.S
+
+-- Theme
+local BG = Color3.fromRGB(25, 25, 48)
+local PANEL = Color3.fromRGB(50, 48, 95)
+local ACCENT = Color3.fromRGB(35, 34, 65)
+local BRIGHT = Color3.fromRGB(130, 115, 255)
+local TEXT = Color3.fromRGB(255, 255, 255)
+local SUBTEXT = Color3.fromRGB(205, 200, 235)
+local GREEN = Color3.fromRGB(80, 220, 130)
+
+-- Helpers
+local function round(object, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius)
+    corner.Parent = object
+    return corner
+end
+
+local function stroke(object, color, thickness, transparency)
+    local outline = Instance.new("UIStroke")
+    outline.Color = color
+    outline.Thickness = thickness or 1
+    outline.Transparency = transparency or 0
+    outline.Parent = object
+    return outline
+end
+
+local function getVehicleFromDescendant(descendant)
+    return descendant:FindFirstAncestor(player.Name .. "'s Car")
+        or (descendant:FindFirstAncestor("Body")
+            and descendant:FindFirstAncestor("Body").Parent)
+        or (descendant:FindFirstAncestor("Misc")
+            and descendant:FindFirstAncestor("Misc").Parent)
+        or descendant:FindFirstAncestorWhichIsA("Model")
+end
+
+local function getSeatPart()
+    local character = player.Character
+    if not character then return nil end
+
+    local humanoid = character:FindFirstChildWhichIsA("Humanoid")
+    if not humanoid then return nil end
+
+    local seat = humanoid.SeatPart
+    if seat and seat:IsA("VehicleSeat") then
+        return seat
+    end
+
+    return nil
+end
+
+--==================================================
+-- GUI ROOT
+--==================================================
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ByteVehicleUI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.DisplayOrder = 10
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+-- Main window
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = UDim2.fromOffset(300, 520)
+main.Position = UDim2.new(0.5, -150, 0.5, -260)
+main.BackgroundColor3 = BG
+main.BorderSizePixel = 0
+main.ClipsDescendants = true
+main.Active = true
+main.ZIndex = 1
+main.Parent = screenGui
+
+round(main, 16)
+stroke(main, BRIGHT, 1.5, 0.15)
+
+--==================================================
+-- BACKGROUND IMAGE
+--==================================================
+
+local backgroundImage = Instance.new("ImageLabel")
+backgroundImage.Name = "BackgroundImage"
+backgroundImage.Size = UDim2.fromScale(1, 1)
+backgroundImage.Position = UDim2.fromScale(0, 0)
+backgroundImage.BackgroundTransparency = 1
+backgroundImage.Image = IMAGE_ID
+backgroundImage.ScaleType = Enum.ScaleType.Crop
+backgroundImage.ImageTransparency = 0
+backgroundImage.BorderSizePixel = 0
+backgroundImage.Active = false
+backgroundImage.ZIndex = 1
+backgroundImage.Parent = main
+
+round(backgroundImage, 16)
+
+-- Dark tint over image, behind the controls
+local tint = Instance.new("Frame")
+tint.Name = "ImageTint"
+tint.Size = UDim2.fromScale(1, 1)
+tint.BackgroundColor3 = Color3.fromRGB(15, 12, 35)
+tint.BackgroundTransparency = 0.50
+tint.BorderSizePixel = 0
+tint.Active = false
+tint.ZIndex = 2
+tint.Parent = main
+
+round(tint, 16)
+
+--==================================================
+-- TITLE BAR
+--==================================================
+
+local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, 44)
+titleBar.BackgroundColor3 = PANEL
+titleBar.BackgroundTransparency = 0.12
+titleBar.BorderSizePixel = 0
+titleBar.Active = true
+titleBar.ZIndex = 3
+titleBar.Parent = main
+
+round(titleBar, 16)
+
+-- Cover bottom title-bar corners for a smooth join
+local titleBottom = Instance.new("Frame")
+titleBottom.Size = UDim2.new(1, 0, 0, 15)
+titleBottom.Position = UDim2.new(0, 0, 1, -15)
+titleBottom.BackgroundColor3 = PANEL
+titleBottom.BackgroundTransparency = 0.12
+titleBottom.BorderSizePixel = 0
+titleBottom.ZIndex = 3
+titleBottom.Parent = titleBar
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -50, 1, 0)
+titleLabel.Position = UDim2.fromOffset(12, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "🚗 Universal Scripts HUB"
+titleLabel.TextColor3 = TEXT
+titleLabel.TextSize = 14
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.ZIndex = 4
+titleLabel.Parent = titleBar
+
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.fromOffset(28, 28)
+closeButton.Position = UDim2.new(1, -36, 0.5, -14)
+closeButton.BackgroundColor3 = Color3.fromRGB(190, 55, 75)
+closeButton.Text = "×"
+closeButton.TextColor3 = TEXT
+closeButton.TextSize = 20
+closeButton.Font = Enum.Font.GothamBold
+closeButton.BorderSizePixel = 0
+closeButton.ZIndex = 4
+closeButton.Parent = titleBar
+
+round(closeButton, 9)
+
+--==================================================
+-- SCROLLABLE CONTENT
+--==================================================
+
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Name = "Content"
+scrollFrame.Size = UDim2.new(1, -12, 1, -54)
+scrollFrame.Position = UDim2.fromOffset(6, 49)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ScrollBarThickness = 3
+scrollFrame.ScrollBarImageColor3 = BRIGHT
+scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+scrollFrame.ScrollingDirection = Enum.ScrollingDirection.Y
+scrollFrame.ZIndex = 3
+scrollFrame.Parent = main
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.Padding = UDim.new(0, 8)
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+listLayout.Parent = scrollFrame
+
+local padding = Instance.new("UIPadding")
+padding.PaddingTop = UDim.new(0, 5)
+padding.PaddingBottom = UDim.new(0, 8)
+padding.PaddingLeft = UDim.new(0, 3)
+padding.PaddingRight = UDim.new(0, 3)
+padding.Parent = scrollFrame
+
+--==================================================
+-- UI COMPONENT BUILDERS
+--==================================================
+
+local function makeSection(title, order)
+    local section = Instance.new("Frame")
+    section.Name = "Section"
+    section.Size = UDim2.new(1, -4, 0, 0)
+    section.AutomaticSize = Enum.AutomaticSize.Y
+    section.BackgroundColor3 = ACCENT
+    section.BackgroundTransparency = 0.18
+    section.BorderSizePixel = 0
+    section.LayoutOrder = order
+    section.ZIndex = 3
+    section.Parent = scrollFrame
+
+    round(section, 12)
+    stroke(section, BRIGHT, 0.8, 0.7)
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingLeft = UDim.new(0, 10)
+    pad.PaddingRight = UDim.new(0, 10)
+    pad.PaddingTop = UDim.new(0, 8)
+    pad.PaddingBottom = UDim.new(0, 9)
+    pad.Parent = section
+
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 6)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = section
+
+    local header = Instance.new("TextLabel")
+    header.Size = UDim2.new(1, 0, 0, 20)
+    header.BackgroundTransparency = 1
+    header.Text = title
+    header.TextColor3 = BRIGHT
+    header.TextSize = 12
+    header.Font = Enum.Font.GothamBold
+    header.TextXAlignment = Enum.TextXAlignment.Left
+    header.LayoutOrder = 0
+    header.ZIndex = 4
+    header.Parent = section
+
+    return section
+end
+
+local function makeLabel(parent, text, order)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 20)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = SUBTEXT
+    label.TextSize = 11
+    label.Font = Enum.Font.Gotham
+    label.TextWrapped = true
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.LayoutOrder = order
+    label.ZIndex = 4
+    label.Parent = parent
+    return label
+end
+
+local function makeButton(parent, text, order, callback)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, 0, 0, 32)
+    button.BackgroundColor3 = PANEL
+    button.BackgroundTransparency = 0.08
+    button.Text = text
+    button.TextColor3 = TEXT
+    button.TextSize = 12
+    button.Font = Enum.Font.GothamBold
+    button.BorderSizePixel = 0
+    button.LayoutOrder = order
+    button.ZIndex = 4
+    button.Parent = parent
+
+    round(button, 9)
+    stroke(button, BRIGHT, 0.8, 0.7)
+
+    button.Activated:Connect(callback)
+    return button
+end
+
+local function makeToggle(parent, text, default, order, callback)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 34)
+    row.BackgroundColor3 = BG
+    row.BackgroundTransparency = 0.12
+    row.BorderSizePixel = 0
+    row.LayoutOrder = order
+    row.ZIndex = 4
+    row.Parent = parent
+
+    round(row, 9)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -58, 1, 0)
+    label.Position = UDim2.fromOffset(9, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = TEXT
+    label.TextSize = 12
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.ZIndex = 5
+    label.Parent = row
+
+    local enabled = default
+
+    local toggle = Instance.new("TextButton")
+    toggle.Size = UDim2.fromOffset(38, 20)
+    toggle.Position = UDim2.new(1, -46, 0.5, -10)
+    toggle.Text = ""
+    toggle.BorderSizePixel = 0
+    toggle.ZIndex = 5
+    toggle.Parent = row
+
+    round(toggle, 10)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(14, 14)
+    knob.BorderSizePixel = 0
+    knob.BackgroundColor3 = TEXT
+    knob.ZIndex = 6
+    knob.Parent = toggle
+
+    round(knob, 7)
+
+    local function refresh()
+        toggle.BackgroundColor3 = enabled and GREEN
+            or Color3.fromRGB(85, 85, 115)
+
+        knob.Position = enabled
+            and UDim2.new(1, -17, 0.5, -7)
+            or UDim2.new(0, 3, 0.5, -7)
+    end
+
+    refresh()
+
+    toggle.Activated:Connect(function()
+        enabled = not enabled
+        refresh()
+        callback(enabled)
+    end)
+
+    return row
+end
+
+local function makeSlider(parent, text, default, minimum, maximum, order, callback)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 48)
+    row.BackgroundColor3 = BG
+    row.BackgroundTransparency = 0.12
+    row.BorderSizePixel = 0
+    row.LayoutOrder = order
+    row.ZIndex = 4
+    row.Parent = parent
+
+    round(row, 9)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -55, 0, 20)
+    label.Position = UDim2.fromOffset(9, 3)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = TEXT
+    label.TextSize = 11
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.ZIndex = 5
+    label.Parent = row
+
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Size = UDim2.fromOffset(46, 20)
+    valueLabel.Position = UDim2.new(1, -51, 0, 3)
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Text = tostring(default)
+    valueLabel.TextColor3 = BRIGHT
+    valueLabel.TextSize = 11
+    valueLabel.Font = Enum.Font.GothamBold
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    valueLabel.ZIndex = 5
+    valueLabel.Parent = row
+
+    local track = Instance.new("TextButton")
+    track.Size = UDim2.new(1, -18, 0, 8)
+    track.Position = UDim2.fromOffset(9, 31)
+    track.BackgroundColor3 = Color3.fromRGB(65, 62, 100)
+    track.BorderSizePixel = 0
+    track.Text = ""
+    track.ZIndex = 5
+    track.Parent = row
+
+    round(track, 5)
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.BackgroundColor3 = BRIGHT
+    fill.BorderSizePixel = 0
+    fill.ZIndex = 6
+    fill.Parent = track
+
+    round(fill, 5)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(14, 14)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.BackgroundColor3 = TEXT
+    knob.BorderSizePixel = 0
+    knob.ZIndex = 7
+    knob.Parent = track
+
+    round(knob, 7)
+
+    local function setValueFromX(x)
+        local width = math.max(track.AbsoluteSize.X, 1)
+        local t = math.clamp(
+            (x - track.AbsolutePosition.X) / width, 0, 1
+        )
+
+        local value = math.floor(
+            (minimum + t * (maximum - minimum)) * 1000 + 0.5
+        ) / 1000
+
+        fill.Size = UDim2.new(t, 0, 1, 0)
+        knob.Position = UDim2.new(t, 0, 0.5, 0)
+        valueLabel.Text = tostring(value)
+        callback(value)
+    end
+
+    local initial = math.clamp(
+        (default - minimum) / (maximum - minimum), 0, 1
+    )
+
+    fill.Size = UDim2.new(initial, 0, 1, 0)
+    knob.Position = UDim2.new(initial, 0, 0.5, 0)
+
+    local draggingSlider = false
+
+    track.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            draggingSlider = true
+            setValueFromX(input.Position.X)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if draggingSlider then
+            if input.UserInputType == Enum.UserInputType.MouseMovement
+                or input.UserInputType == Enum.UserInputType.Touch then
+                setValueFromX(input.Position.X)
+            end
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            draggingSlider = false
+        end
+    end)
+
+    return row
+end
+
+
+
+local usage = makeSection("⚙  Usage", 1)
+
+makeToggle(usage, "Keybinds Active", true, 1, function(value)
+    keybindsActive = value
+end)
+
+makeLabel(usage, "W = Accelerate   S = Brake   P = Stop", 2)
+
+
+local flight = makeSection("✈  Flight", 2)
+
+makeToggle(flight, "Flight Enabled", false, 1, function(value)
+    flightEnabled = value
+end)
+
+makeSlider(flight, "Flight Speed", 100, 0, 800, 2, function(value)
+    flightSpeed = value / 100
+end)
+
+makeLabel(flight, "WASD = Move   Q/E = Down/Up", 3)
+
+
+local acceleration = makeSection("🚀  Acceleration", 3)
+
+makeSlider(
+    acceleration,
+    "Multiplier (Thousandths)",
+    25, 0, 50, 1,
+    function(value)
+        velocityMult = value / 1000
+    end
+)
+
+makeLabel(acceleration, "Hold W to accelerate", 2)
+
+
+local deceleration = makeSection("🛑  Deceleration", 4)
+
+makeSlider(
+    deceleration,
+    "Brake Force (Thousandths)",
+    150, 0, 300, 1,
+    function(value)
+        brakeForce = value / 1000
+    end
+)
+
+makeLabel(deceleration, "Hold S to brake   P to stop", 2)
+
+makeButton(deceleration, "Stop Vehicle Now", 3, function()
+    local seat = getSeatPart()
+
+    if seat then
+        seat.AssemblyLinearVelocity = Vector3.zero
+        seat.AssemblyAngularVelocity = Vector3.zero
+    end
+end)
+
+
+local misc = makeSection("🔧  Misc", 5)
+
+makeButton(misc, "Show Springs", 1, function()
+    local seat = getSeatPart()
+    if not seat then return end
+
+    local vehicle = getVehicleFromDescendant(seat)
+    if not vehicle then return end
+
+    for _, item in ipairs(vehicle:GetDescendants()) do
+        if item:IsA("SpringConstraint") then
+            item.Visible = not item.Visible
+        end
+    end
+end)
+
+
+
+local draggingWindow = false
+local dragStart
+local startPosition
+
+titleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        draggingWindow = true
+        dragStart = input.Position
+        startPosition = main.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingWindow then
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+
+            local delta = input.Position - dragStart
+
+            main.Position = UDim2.new(
+                startPosition.X.Scale,
+                startPosition.X.Offset + delta.X,
+                startPosition.Y.Scale,
+                startPosition.Y.Offset + delta.Y
+            )
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        draggingWindow = false
+    end
+end)
+
+
+closeButton.Activated:Connect(function()
+    screenGui:Destroy()
+end)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if not processed
+        and input.KeyCode == Enum.KeyCode.RightBracket then
+        main.Visible = not main.Visible
+    end
+end)
+
+
+
+local defaultCharParent
+
+RunService.Stepped:Connect(function()
+    if not screenGui.Parent then return end
+
+    local character = player.Character
+
+    if flightEnabled then
+        if not character then return end
+
+        local humanoid = character:FindFirstChildWhichIsA("Humanoid")
+        if not humanoid then return end
+
+        local seat = humanoid.SeatPart
+        if not seat or not seat:IsA("VehicleSeat") then return end
+
+        local vehicle = getVehicleFromDescendant(seat)
+        if not vehicle or not vehicle:IsA("Model") then return end
+
+        if not defaultCharParent then
+            defaultCharParent = character.Parent
+        end
+
+        if not vehicle.PrimaryPart then
+            vehicle.PrimaryPart = seat
+        end
+
+        character.Parent = vehicle
+
+        local cf = vehicle:GetPrimaryPartCFrame()
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+
+        local offset = CFrame.new(
+            (UserInputService:IsKeyDown(Enum.KeyCode.D) and flightSpeed)
+                or (UserInputService:IsKeyDown(Enum.KeyCode.A) and -flightSpeed)
+                or 0,
+
+            (UserInputService:IsKeyDown(Enum.KeyCode.E) and flightSpeed / 2)
+                or (UserInputService:IsKeyDown(Enum.KeyCode.Q) and -flightSpeed / 2)
+                or 0,
+
+            (UserInputService:IsKeyDown(Enum.KeyCode.S) and flightSpeed)
+                or (UserInputService:IsKeyDown(Enum.KeyCode.W) and -flightSpeed)
+                or 0
+        )
+
+        vehicle:SetPrimaryPartCFrame(
+            CFrame.new(
+                cf.Position,
+                cf.Position + camera.CFrame.LookVector
+            ) * offset
+        )
+
+        seat.AssemblyLinearVelocity = Vector3.zero
+        seat.AssemblyAngularVelocity = Vector3.zero
+    elseif character and defaultCharParent then
+        character.Parent = defaultCharParent
+        defaultCharParent = nil
+    end
+end)
+
+task.spawn(function()
+    while screenGui.Parent do
+        task.wait()
+
+        if keybindsActive and not flightEnabled
+            and UserInputService:IsKeyDown(accelKey) then
+
+            local seat = getSeatPart()
+
+            if seat then
+                seat.AssemblyLinearVelocity =
+                    seat.AssemblyLinearVelocity
+                    * Vector3.new(1 + velocityMult, 1, 1 + velocityMult)
+            end
+        end
+    end
+end)
+
+
+task.spawn(function()
+    while screenGui.Parent do
+        task.wait()
+
+        if keybindsActive and not flightEnabled
+            and UserInputService:IsKeyDown(brakeKey) then
+
+            local seat = getSeatPart()
+
+            if seat then
+                seat.AssemblyLinearVelocity =
+                    seat.AssemblyLinearVelocity
+                    * Vector3.new(1 - brakeForce, 1, 1 - brakeForce)
+            end
+        end
+    end
+end)
+
+
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+
+    if keybindsActive and input.KeyCode == Enum.KeyCode.P then
+        local seat = getSeatPart()
+
+        if seat then
+            seat.AssemblyLinearVelocity = Vector3.zero
+            seat.AssemblyAngularVelocity = Vector3.zero
+        end
+    end
+end)
